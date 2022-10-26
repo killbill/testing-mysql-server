@@ -1,2 +1,3 @@
 # testing-mysql-server
-Embedded MySQL server for use in tests
+
+Fork of airlift's [testing-mysql-server](https://github.com/airlift/testing-mysql-server). 
