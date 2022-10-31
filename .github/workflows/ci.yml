@@ -137,8 +137,7 @@ jobs:
           echo "$i pom.xml changes:"
           git --no-pager diff
           echo "Running $i ${{ matrix.suite }} tests"
-          # Flaky...
-          $GITHUB_WORKSPACE/testing-mysql-server/bin/retry mvn clean install -P${{ matrix.suite }}
+          mvn clean install -P${{ matrix.suite }}
           popd
       - name: Run killbill-plugin-framework-java tests
         run: |
@@ -156,8 +155,7 @@ jobs:
           echo "$i pom.xml changes:"
           git --no-pager diff
           echo "Running $i ${{ matrix.suite }} tests"
-          # Flaky...
-          $GITHUB_WORKSPACE/testing-mysql-server/bin/retry mvn clean install -P${{ matrix.suite }}
+          mvn clean install -P${{ matrix.suite }}
           popd
       - name: Run killbill tests
         run: |
@@ -166,6 +164,5 @@ jobs:
           echo "$i pom.xml changes:"
           git --no-pager diff
           echo "Running $i ${{ matrix.suite }} tests"
-          # Flaky...
-          $GITHUB_WORKSPACE/testing-mysql-server/bin/retry mvn clean install -P${{ matrix.suite }} -Dkillbill.test.apiListenerDelay=120000
+          mvn clean install -P${{ matrix.suite }} -Dkillbill.test.apiListenerDelay=120000
           popd
