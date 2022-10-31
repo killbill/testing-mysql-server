@@ -1,0 +1,171 @@
+name: ci
+
+on:
+  - pull_request
+  - push
+  - workflow_dispatch
+
+env:
+  MAVEN_FLAGS: "-B -ff -Dcheck.skip-spotbugs=true -DskipTests=true"
+  MAVEN_OPTS: "-Xmx2G -XX:+ExitOnOutOfMemoryError -Dmaven.wagon.rto=60000"
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 200
+    strategy:
+      fail-fast: false
+      matrix:
+        java-version:
+          - 11
+          - 17
+        java-distribution:
+          - temurin
+        suite:
+          - mysql
+        ref-commons:
+          - refs/heads/work-for-release-0.23.x
+        ref-plugin-framework-java:
+          - refs/heads/work-for-release-0.23.x
+        ref-platform:
+          - refs/heads/work-for-release-0.23.x
+        ref-client-java:
+          - refs/heads/work-for-release-0.23.x
+        ref-killbill:
+          - refs/heads/work-for-release-0.23.x
+    steps:
+      - name: Checkout testing-mysql-server
+        uses: actions/checkout@v2
+        with:
+          repository: killbill/testing-mysql-server
+          path: testing-mysql-server
+      - name: Checkout killbill-commons
+        uses: actions/checkout@v2
+        with:
+          repository: killbill/killbill-commons
+          ref: ${{ matrix.ref-commons }}
+          path: killbill-commons
+      - name: Checkout killbill-plugin-framework-java
+        uses: actions/checkout@v2
+        with:
+          repository: killbill/killbill-plugin-framework-java
+          ref: ${{ matrix.ref-plugin-framework-java }}
+          path: killbill-plugin-framework-java
+      - name: Checkout killbill-platform
+        uses: actions/checkout@v2
+        with:
+          repository: killbill/killbill-platform
+          ref: ${{ matrix.ref-platform }}
+          path: killbill-platform
+      - name: Checkout killbill
+        uses: actions/checkout@v2
+        with:
+          repository: killbill/killbill
+          ref: ${{ matrix.ref-killbill }}
+          path: killbill
+      - name: Setup Java
+        uses: actions/setup-java@v2
+        with:
+          distribution: ${{ matrix.java-distribution }}
+          java-version: ${{ matrix.java-version }}
+      - name: Configure Sonatype mirror
+        uses: s4u/maven-settings-action@v2.4.1
+        # Go to Sonatype directly to avoid delay syncs (could get rid of this if actions/setup-java were to support mirrors).
+        with:
+          mirrors: '[{"id": "oss-releases", "name": "Sonatype releases", "mirrorOf": "central", "url": "https://oss.sonatype.org/content/repositories/releases"}]'
+          sonatypeSnapshots: true
+      - name: Download dependencies and setup the various pom.xml
+        run: |
+          pushd $GITHUB_WORKSPACE/testing-mysql-server
+          pomVersion=$(mvn ${MAVEN_FLAGS} help:evaluate -Dexpression=project.version -q -DforceStdout)
+          mvn ${MAVEN_FLAGS} clean install
+          popd
+
+          declare -A property=(
+            [killbill-commons]=killbill-commons.version
+            [killbill-plugin-framework-java]=killbill-base-plugin.version
+            [killbill-platform]=killbill-platform.version
+          )
+          for i in killbill-commons killbill-plugin-framework-java killbill-platform; do
+            echo "::group::Update $i parent"
+            pushd $GITHUB_WORKSPACE/$i
+            echo "Resolving current $i version"
+            version=$(mvn ${MAVEN_FLAGS} help:evaluate -Dexpression=project.version -q -DforceStdout)
+            echo "Current $i version is $version"
+            echo "Updating $i parent pom.xml to $pomVersion"
+            mvn ${MAVEN_FLAGS} versions:update-parent -DallowSnapshots -DgenerateBackupPoms=false -DparentVersion="[$pomVersion]"
+            echo "$i pom.xml changes:"
+            git --no-pager diff
+            echo "Building $i"
+            mvn ${MAVEN_FLAGS} clean install
+            popd
+            echo "::endgroup::"
+
+            echo "::group::Update $i in testing-mysql-server"
+            pushd $GITHUB_WORKSPACE/testing-mysql-server
+            echo "Updating ${property[$i]} in parent pom.xml to $version"
+            mvn ${MAVEN_FLAGS} versions:set-property -Dproperty=${property[$i]} -DnewVersion=$version
+            echo "testing-mysql-server pom.xml changes:"
+            git --no-pager diff
+            echo "Building testing-mysql-server"
+            mvn ${MAVEN_FLAGS} clean install
+            popd
+            echo "::endgroup::"
+          done
+      - name: Build Kill Bill
+        run: |
+          pushd $GITHUB_WORKSPACE/testing-mysql-server
+          pomVersion=$(mvn ${MAVEN_FLAGS} help:evaluate -Dexpression=project.version -q -DforceStdout)
+          popd
+
+          pushd $GITHUB_WORKSPACE/killbill
+          echo "Updating killbill parent pom.xml to $pomVersion"
+          mvn ${MAVEN_FLAGS} versions:update-parent -DallowSnapshots -DgenerateBackupPoms=false -DparentVersion="[$pomVersion]"
+          echo "Building killbill"
+          mvn ${MAVEN_FLAGS} clean install
+          popd
+      - name: Review testing-mysql-server pom.xml changes
+        run: |
+          pushd $GITHUB_WORKSPACE/testing-mysql-server
+          echo "testing-mysql-server pom.xml changes:"
+          git --no-pager diff
+          popd
+      - name: Run killbill-commons tests
+        run: |
+          i=killbill-commons
+          pushd $GITHUB_WORKSPACE/$i
+          echo "$i pom.xml changes:"
+          git --no-pager diff
+          echo "Running $i ${{ matrix.suite }} tests"
+          # Flaky...
+          $GITHUB_WORKSPACE/testing-mysql-server/bin/retry mvn clean install -P${{ matrix.suite }}
+          popd
+      - name: Run killbill-plugin-framework-java tests
+        run: |
+          i=killbill-plugin-framework-java
+          pushd $GITHUB_WORKSPACE/$i
+          echo "$i pom.xml changes:"
+          git --no-pager diff
+          echo "Running $i ${{ matrix.suite }} tests"
+          mvn clean install -P${{ matrix.suite }}
+          popd
+      - name: Run killbill-platform tests
+        run: |
+          i=killbill-platform
+          pushd $GITHUB_WORKSPACE/$i
+          echo "$i pom.xml changes:"
+          git --no-pager diff
+          echo "Running $i ${{ matrix.suite }} tests"
+          # Flaky...
+          $GITHUB_WORKSPACE/testing-mysql-server/bin/retry mvn clean install -P${{ matrix.suite }}
+          popd
+      - name: Run killbill tests
+        run: |
+          i=killbill
+          pushd $GITHUB_WORKSPACE/$i
+          echo "$i pom.xml changes:"
+          git --no-pager diff
+          echo "Running $i ${{ matrix.suite }} tests"
+          # Flaky...
+          $GITHUB_WORKSPACE/testing-mysql-server/bin/retry mvn clean install -P${{ matrix.suite }} -Dkillbill.test.apiListenerDelay=120000
+          popd
