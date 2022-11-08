@@ -14,11 +14,8 @@
 
 package org.killbill.testing.mysql;
 
-import com.google.common.collect.ImmutableSet;
-
 import org.testng.annotations.Test;
 
-import java.net.URI;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -32,24 +29,24 @@ public class TestTestingMySqlServer {
 
     @Test
     public void testDatabase() throws Exception {
-        try (TestingMySqlServer server = new TestingMySqlServer("testuser", "testpass", "db1", "db2")) {
+        final MySqlServerOptions options = MySqlServerOptions
+                .builder("db1", "db2")
+                .setUsername("testuser")
+                .setPassword("testpass")
+                .build();
+        try (final TestingMySqlServer server = new TestingMySqlServer(options)) {
             assertEquals(server.getMySqlVersion(), EXPECTED_MYSQL_VERSION);
-            assertEquals(server.getDatabases(), ImmutableSet.of("db1", "db2"));
-            assertEquals(server.getUser(), "testuser");
-            assertEquals(server.getPassword(), "testpass");
-            assertEquals(server.getJdbcUrl().substring(0, 5), "jdbc:");
-            assertEquals(server.getPort(), URI.create(server.getJdbcUrl().substring(5)).getPort());
 
-            try (Connection connection = DriverManager.getConnection(server.getJdbcUrl())) {
+            try (final Connection connection = DriverManager.getConnection(options.getJdbcUrl("db1"))) {
                 assertEquals(connection.getMetaData().getDatabaseProductName(), "MySQL");
             }
 
-            for (String database : server.getDatabases()) {
-                try (Connection connection = DriverManager.getConnection(server.getJdbcUrl(database))) {
-                    try (Statement statement = connection.createStatement()) {
+            for (final String database : options.getDatabaseNames()) {
+                try (final Connection connection = DriverManager.getConnection(options.getJdbcUrl(database))) {
+                    try (final Statement statement = connection.createStatement()) {
                         statement.execute("CREATE TABLE test_table (c1 bigint PRIMARY KEY)");
                         statement.execute("INSERT INTO test_table (c1) VALUES (1)");
-                        try (ResultSet resultSet = statement.executeQuery("SELECT count(*) FROM test_table")) {
+                        try (final ResultSet resultSet = statement.executeQuery("SELECT count(*) FROM test_table")) {
                             assertTrue(resultSet.next());
                             assertEquals(resultSet.getLong(1), 1L);
                             assertFalse(resultSet.next());
@@ -62,11 +59,12 @@ public class TestTestingMySqlServer {
 
     @Test
     public void testGlobal() throws Exception {
-        try (TestingMySqlServer server = new TestingMySqlServer("testuser", "testpass");
-             Connection connection = DriverManager.getConnection(server.getJdbcUrl())) {
+        final MySqlServerOptions options = MySqlServerOptions.builder("any").build();
+        try (final TestingMySqlServer ignored = new TestingMySqlServer(options)) {
+            final Connection connection = DriverManager.getConnection(options.getRootJdbcUrl());
             assertEquals(connection.getMetaData().getDatabaseProductName(), "MySQL");
 
-            try (Statement statement = connection.createStatement()) {
+            try (final Statement statement = connection.createStatement()) {
                 statement.execute("CREATE DATABASE testdb");
                 statement.execute("CREATE TABLE testdb.test_table (id bigint PRIMARY KEY)");
             }
