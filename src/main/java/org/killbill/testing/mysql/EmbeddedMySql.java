@@ -16,20 +16,21 @@ package org.killbill.testing.mysql;
 import com.google.common.io.ByteStreams;
 import io.airlift.command.Command;
 import io.airlift.command.CommandFailedException;
-import io.airlift.log.Logger;
 import io.airlift.units.Duration;
 
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.ServerSocket;
 import java.net.URL;
 import java.nio.file.Path;
 import java.sql.*;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.StandardSystemProperty.OS_ARCH;
@@ -43,54 +44,49 @@ import static java.lang.String.format;
 import static java.nio.file.Files.copy;
 import static java.nio.file.Files.createTempDirectory;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
-import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.Executors.newCachedThreadPool;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 final class EmbeddedMySql implements Closeable {
-    private static final Logger log = Logger.get(EmbeddedMySql.class);
-
-    private static final String JDBC_FORMAT = "jdbc:mysql://localhost:%s/%s?user=%s&useSSL=false";
+    private static final Logger log = LoggerFactory.getLogger(EmbeddedMySql.class);
 
     private final ExecutorService executor = newCachedThreadPool(daemonThreadsNamed("testing-mysql-server-%s"));
     private final Path serverDirectory;
-    private final int port = randomPort();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final Process mysqld;
 
+    private final int port;
     private final Duration startupWait;
     private final Duration shutdownWait;
     private final Duration commandTimeout;
+    private final String jdbcUrl;
 
-    public EmbeddedMySql(MySqlOptions mySqlOptions) throws IOException {
-        this.startupWait = requireNonNull(mySqlOptions.getStartupWait(), "startupWait is null");
-        this.shutdownWait = requireNonNull(mySqlOptions.getShutdownWait(), "shutdownWait is null");
-        this.commandTimeout = requireNonNull(mySqlOptions.getCommandTimeout(), "commandTimeout is null");
-
+    public EmbeddedMySql(final MySqlServerOptions options) throws IOException {
         serverDirectory = createTempDirectory("testing-mysql-server");
+        log.info("Starting MySQL server in {}", serverDirectory);
 
-        log.info("Starting MySQL server in %s", serverDirectory);
+        port = options.getPort();
+        startupWait = options.getStartupWait();
+        shutdownWait = options.getShutdownWait();
+        commandTimeout = options.getCommandTimeout();
+        jdbcUrl = options.getRootJdbcUrl();
 
         try {
             unpackMySql(serverDirectory);
             initialize();
             mysqld = startMysqld();
-        } catch (Exception e) {
+        } catch (final Exception e) {
             close();
             throw e;
         }
     }
 
-    public String getJdbcUrl(String userName, String dbName) {
-        return format(JDBC_FORMAT, port, dbName, userName);
-    }
-
-    public int getPort() {
-        return port;
-    }
-
     public Connection getMySqlDatabase() throws SQLException {
-        return DriverManager.getConnection(getJdbcUrl("root", "mysql"));
+        return DriverManager.getConnection(jdbcUrl);
+    }
+
+    public Path getServerDirectory() {
+        return serverDirectory;
     }
 
     @Override
@@ -100,23 +96,23 @@ final class EmbeddedMySql implements Closeable {
         }
 
         if (mysqld != null) {
-            log.info("Shutting down mysqld. Waiting up to %s for shutdown to finish.", startupWait);
+            log.info("Shutting down mysqld. Waiting up to {} for shutdown to finish.", startupWait);
             mysqld.destroyForcibly();
             try {
                 mysqld.waitFor(shutdownWait.toMillis(), MILLISECONDS);
-            } catch (InterruptedException e) {
+            } catch (final InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
 
             if (mysqld.isAlive()) {
-                log.error("mysqld is still running in %s", serverDirectory);
+                log.error("mysqld is still running in {}", serverDirectory);
             }
         }
 
         try {
             deleteRecursively(serverDirectory, ALLOW_INSECURE);
-        } catch (IOException e) {
-            log.warn(e, "Failed to delete %s", serverDirectory);
+        } catch (final IOException e) {
+            log.warn("Failed to delete {}", serverDirectory);
         }
 
         executor.shutdownNow();
@@ -130,24 +126,16 @@ final class EmbeddedMySql implements Closeable {
                 .toString();
     }
 
-    private static int randomPort() throws IOException {
-        try (ServerSocket socket = new ServerSocket(0)) {
-            return socket.getLocalPort();
-        }
-    }
-
     private void initialize() {
         system(mysqld(),
                 "--no-defaults",
                 "--initialize-insecure",
                 "--innodb-flush-method=nosync",
-                "--plugin-dir=lib/private",
-                "--early-plugin-load=libprotobuf.so.3.19.4",
                 "--datadir", dataDir());
     }
 
     private Process startMysqld() throws IOException {
-        List<String> args = newArrayList(
+        final List<String> args = newArrayList(
                 mysqld(),
                 "--no-defaults",
                 "--skip-ssl",
@@ -157,18 +145,16 @@ final class EmbeddedMySql implements Closeable {
                 "--innodb-flush-log-at-trx-commit=0",
                 "--innodb-doublewrite=0",
                 "--bind-address=localhost",
-                "--plugin-dir=lib/private",
-                "--early-plugin-load=libprotobuf.so.3.19.4",
                 "--lc_messages_dir", serverDirectory.resolve("share").toString(),
                 "--socket", serverDirectory.resolve("mysql.sock").toString(),
                 "--port", String.valueOf(port),
                 "--datadir", dataDir());
 
-        Process process = new ProcessBuilder(args)
+        final Process process = new ProcessBuilder(args)
                 .redirectErrorStream(true)
                 .start();
 
-        log.info("mysqld started on port %s. Waiting up to %s for startup to finish.", port, startupWait);
+        log.info("mysqld started on port {}. Waiting up to {} for startup to finish.", port, startupWait);
 
         startOutputProcessor(process.getInputStream());
 
@@ -185,29 +171,29 @@ final class EmbeddedMySql implements Closeable {
         return serverDirectory.resolve("data").toString();
     }
 
-    private void waitForServerStartup(Process process) throws IOException {
+    private void waitForServerStartup(final Process process) throws IOException {
         Throwable lastCause = null;
-        long start = System.nanoTime();
+        final long start = System.nanoTime();
         while (Duration.nanosSince(start).compareTo(startupWait) <= 0) {
             try {
                 checkReady();
                 log.info("mysqld startup finished");
                 return;
-            } catch (SQLException e) {
+            } catch (final SQLException e) {
                 lastCause = e;
             }
 
             try {
                 // check if process has exited
-                int value = process.exitValue();
+                final int value = process.exitValue();
                 throw new IOException(format("mysqld exited with value %s, check stdout for more detail", value));
-            } catch (IllegalThreadStateException ignored) {
+            } catch (final IllegalThreadStateException ignored) {
                 // process is still running, loop and try again
             }
 
             try {
                 Thread.sleep(10);
-            } catch (InterruptedException e) {
+            } catch (final InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;
             }
@@ -216,57 +202,57 @@ final class EmbeddedMySql implements Closeable {
     }
 
     private void checkReady() throws SQLException {
-        try (Connection connection = getMySqlDatabase();
-                Statement statement = connection.createStatement();
-                ResultSet resultSet = statement.executeQuery("SELECT 42")) {
+        try (final Connection connection = getMySqlDatabase();
+             final Statement statement = connection.createStatement();
+             final ResultSet resultSet = statement.executeQuery("SELECT 42")) {
             checkSql(resultSet.next(), "no rows in result set");
             checkSql(resultSet.getInt(1) == 42, "wrong result");
             checkSql(!resultSet.next(), "multiple rows in result set");
         }
     }
 
-    private static void checkSql(boolean expression, String message) throws SQLException {
+    private static void checkSql(final boolean expression, final String message) throws SQLException {
         if (!expression) {
             throw new SQLException(message);
         }
     }
 
-    private void startOutputProcessor(InputStream in) {
+    private void startOutputProcessor(final InputStream in) {
         executor.execute(() -> {
             try {
                 ByteStreams.copy(in, System.out);
             }
-            catch (IOException ignored) {
+            catch (final IOException ignored) {
             }
         });
     }
 
-    private void system(String... command) {
+    private void system(final String... command) {
         try {
             new Command(command)
                     .setTimeLimit(commandTimeout)
                     .execute(executor);
-        } catch (CommandFailedException e) {
+        } catch (final CommandFailedException e) {
             throw new RuntimeException(e);
         }
     }
 
-    private void unpackMySql(Path target) throws IOException {
-        String archiveName = format("/mysql-%s.tar.gz", getPlatform());
-        URL url = EmbeddedMySql.class.getResource(archiveName);
+    private void unpackMySql(final Path target) throws IOException {
+        final String archiveName = format("/mysql-%s.tar.gz", getPlatform());
+        final URL url = EmbeddedMySql.class.getResource(archiveName);
         if (url == null) {
             throw new RuntimeException("archive not found: " + archiveName);
         }
 
-        File archive = createTempFile("mysql-", null);
+        final File archive = createTempFile("mysql-", null);
         try {
-            try (InputStream in = url.openStream()) {
+            try (final InputStream in = url.openStream()) {
                 copy(in, archive.toPath(), REPLACE_EXISTING);
             }
             system("tar", "-xzf", archive.getPath(), "-C", target.toString());
         } finally {
             if (!archive.delete()) {
-                log.warn("Failed to delete file %s", archive);
+                log.warn("Failed to delete file {}", archive);
             }
         }
     }

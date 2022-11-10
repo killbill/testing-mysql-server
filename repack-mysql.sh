@@ -49,8 +49,9 @@ test -e $OSX_DIST || curl -L -o $OSX_DIST "$BASEURL/$OSX_NAME"
 PACKDIR=$(mktemp -d "${TMPDIR:-/tmp}/mysql.XXXXXXXXXX")
 $TAR -xf $LINUX_DIST -C "$PACKDIR"
 pushd "$PACKDIR"/$LINUX_BASE
-# libprotobuf-lite needed since 8.0.31
-cp "$PACKDIR"/$LINUX_BASE/lib/private/libprotobuf-lite.so.3.19.4 "$PACKDIR"/$LINUX_BASE/bin
+# libprotobuf<XXX> needed since 8.0.31
+ln -s "$PACKDIR"/$LINUX_BASE/lib/private/libprotobuf.so.3.19.4 "$PACKDIR"/$LINUX_BASE/bin
+ln -s "$PACKDIR"/$LINUX_BASE/lib/private/libprotobuf-lite.so.3.19.4 "$PACKDIR"/$LINUX_BASE/bin
 $STRIP bin/mysqld
 $TAR -czf "$OLDPWD"/$RESOURCES/mysql-Linux-amd64.tar.gz \
   LICENSE \
@@ -60,9 +61,12 @@ $TAR -czf "$OLDPWD"/$RESOURCES/mysql-Linux-amd64.tar.gz \
   share/*.txt \
   share/charsets \
   share/english \
+  lib/plugin/component_reference_cache.so \
   lib/private/libcrypto.* \
   lib/private/libssl.* \
+  lib/private/libprotobuf.* \
   lib/private/libprotobuf-lite.* \
+  bin/libprotobuf.* \
   bin/libprotobuf-lite.* \
   bin/mysqld
 popd
@@ -79,9 +83,12 @@ $TAR -czf "$OLDPWD"/$RESOURCES/mysql-Mac_OS_X-x86_64.tar.gz \
   share/*.txt \
   share/charsets \
   share/english \
+  lib/plugin/component_reference_cache.so \
   lib/libcrypto.* \
   lib/libssl.* \
+  lib/libprotobuf.* \
   lib/libprotobuf-lite.* \
+  bin/libprotobuf.* \
   bin/libprotobuf-lite.* \
   bin/mysqld
 popd
