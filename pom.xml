@@ -9,7 +9,24 @@
     <name>testing-mysql-server</name>
     <description>Embedded MySQL server for use in tests</description>
     <url>https://github.com/killbill/testing-mysql-server</url>
-
+    <licenses>
+        <license>
+            <name>Apache License 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <developers>
+        <developer>
+            <id>pierre</id>
+            <name>Pierre-Alexandre Meyer</name>
+            <email>pierre@mouraf.org</email>
+        </developer>
+        <developer>
+            <id>stephane</id>
+            <name>Stephane Brossier</name>
+        </developer>
+    </developers>
     <scm>
         <connection>scm:git:git://github.com:killbill/testing-mysql-server.git</connection>
         <developerConnection>scm:git:git@github.com:killbill/testing-mysql-server.git</developerConnection>
@@ -114,6 +131,10 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
             </plugin>
         </plugins>
 
@@ -240,7 +261,21 @@
                         <stagingProgressTimeoutMinutes>10</stagingProgressTimeoutMinutes>
                     </configuration>
                 </plugin>
-
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-source-plugin</artifactId>
+                    <version>3.2.1</version>
+                    <executions>
+                        <execution>
+                            <id>attach-sources</id>
+                            <goals>
+                                <goal>jar-no-fork</goal>
+                                <goal>test-jar-no-fork</goal>
+                            </goals>
+                            <phase>package</phase>
+                        </execution>
+                    </executions>
+                </plugin>
             </plugins>
         </pluginManagement>
         <resources>
