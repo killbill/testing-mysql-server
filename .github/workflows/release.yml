@@ -75,4 +75,4 @@ jobs:
         run: |
           echo "scm.url=scm\:git\:git@github.com\:${GITHUB_REPOSITORY}.git" > release.properties
           echo "scm.tag=${{ github.event.inputs.perform_version }}" >> release.properties
-          mvn -e -X ${MAVEN_FLAGS} release:perform
+          mvn ${MAVEN_FLAGS} release:perform
