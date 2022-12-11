@@ -3,7 +3,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>org.kill-bill.testing</groupId>
     <artifactId>testing-mysql-server</artifactId>
-    <version>1.0.2</version>
+    <version>1.0.3-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>testing-mysql-server</name>
@@ -31,7 +31,7 @@
         <connection>scm:git:git://github.com:killbill/testing-mysql-server.git</connection>
         <developerConnection>scm:git:git@github.com:killbill/testing-mysql-server.git</developerConnection>
         <url>https://github.com/killbill/testing-mysql-server/tree/main</url>
-        <tag>testing-mysql-server-1.0.2</tag>
+        <tag>testing-mysql-server-1.0.1</tag>
     </scm>
 
     <properties>
